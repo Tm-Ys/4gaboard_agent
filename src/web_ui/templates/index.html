@@ -13,8 +13,12 @@
             <p class="subtitle">基于大模型的测试场景自动生成与自主执行</p>
             <div class="toolbar">
                 <div class="mode-badge">检索：<strong>{{ retriever_mode }}</strong></div>
-                <button id="btn-scrape" onclick="startGeneration()">开始生成测试场景</button>
+                <button id="btn-scrape" onclick="startGeneration()">重新生成测试场景</button>
                 <button id="btn-cost" onclick="showCost()">查看 LLM 消耗</button>
+                <button id="btn-task2" onclick="toggleTask2()" class="btn-secondary">智能测试执行</button>
+                <div class="history-selector">
+                    <select id="testscene-select" onchange="loadTestScene()"></select>
+                </div>
             </div>
             <div id="status-bar" class="hidden"></div>
         </header>
@@ -23,6 +27,47 @@
             <div class="modal-content">
                 <span class="close" onclick="closeCost()">&times;</span>
                 <pre id="cost-report"></pre>
+            </div>
+        </div>
+
+        <div id="task2-panel" class="hidden">
+            <div class="panel-header">
+                <h2>智能测试执行</h2>
+                <span class="close" onclick="toggleTask2()">&times;</span>
+            </div>
+            <div class="panel-body">
+                <div class="task2-layout">
+                    <div class="task2-sidebar">
+                        <h3>测试场景列表</h3>
+                        <div id="scenario-list">
+                            <p class="loading-text">加载中...</p>
+                        </div>
+                        <div class="task2-options">
+                            <label>
+                                <input type="checkbox" id="headless-mode" checked>
+                                无头模式
+                            </label>
+                            <button id="btn-run-selected" onclick="runSelectedScenario()" disabled>
+                                执行选中场景
+                            </button>
+                        </div>
+                    </div>
+                    <div class="task2-main">
+                        <div id="task2-progress" class="hidden">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="task2-progress-fill"></div>
+                            </div>
+                            <span id="task2-status-text"></span>
+                        </div>
+                        <div id="task2-result" class="hidden">
+                            <h3>执行结果</h3>
+                            <div id="result-content"></div>
+                        </div>
+                        <div id="task2-empty">
+                            <p>选择一个测试场景，点击「执行选中场景」开始自动化测试</p>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -82,13 +127,13 @@
                 {% else %}
                     <div class="empty-state">
                         <div class="empty-icon">📋</div>
-                        <h3>尚未生成测试场景</h3>
-                        <p>点击上方「开始生成测试场景」按钮，系统将：</p>
+                        <h3>正在加载默认测试场景...</h3>
+                        <p>如果没有自动加载，可以点击「重新生成测试场景」按钮：</p>
                         <ol class="steps-guide">
                             <li>读取本地缓存的用户手册（19 页）</li>
                             <li>构建检索索引</li>
                             <li>调用 LLM 提取功能点</li>
-                            <li>为每个功能点生成测试场景</li>
+                            <li>为每个功能点生成测试场景（需消耗 API）</li>
                         </ol>
                     </div>
                 {% endif %}
@@ -98,13 +143,16 @@
 
     <script>
         let progressTimer = null;
+        let task2Timer = null;
+        let selectedScenarioIndex = -1;
+        let scenarioListData = [];
 
         async function startGeneration() {
+            if (!confirm('重新生成测试场景将调用 LLM API，消耗费用。确定继续吗？')) return;
             const btn = document.getElementById('btn-scrape');
             const bar = document.getElementById('status-bar');
             btn.disabled = true;
             bar.className = 'status-bar status-loading';
-            bar.textContent = '正在启动...';
             bar.innerHTML = '<div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div><span id="status-text">正在启动...</span>';
 
             progressTimer = setInterval(pollProgress, 1000);
@@ -140,9 +188,7 @@
                         document.getElementById('btn-scrape').disabled = false;
                     }
                 }
-            } catch (e) {
-                // ignore poll errors
-            }
+            } catch (e) {}
         }
 
         async function showCost() {
@@ -157,6 +203,188 @@
         }
         window.onclick = function(e) {
             if (e.target === document.getElementById('cost-modal')) closeCost();
+        }
+
+        // History selector
+        async function refreshTestSceneList() {
+            try {
+                const resp = await fetch('/api/testscene/list');
+                const data = await resp.json();
+                const sel = document.getElementById('testscene-select');
+                sel.innerHTML = '<option value="">历史记录</option>';
+                for (const f of data.files) {
+                    const label = f.active ? `📌 ${f.filename} (${f.features}功能/${f.scenarios}场景)` : `${f.filename} (${f.features}功能/${f.scenarios}场景)`;
+                    sel.innerHTML += `<option value="${f.filename}" ${f.active ? 'selected' : ''}>${label}</option>`;
+                }
+            } catch (e) {}
+        }
+
+        async function loadTestScene() {
+            const sel = document.getElementById('testscene-select');
+            const filename = sel.value;
+            if (!filename) return;
+            if (!confirm(`加载「${filename}」将替换当前场景数据，确定继续？`)) {
+                refreshTestSceneList();
+                return;
+            }
+            const formData = new FormData();
+            formData.append('filename', filename);
+            try {
+                const resp = await fetch('/api/testscene/load', { method: 'POST', body: formData });
+                if (resp.ok) {
+                    window.location.reload();
+                } else {
+                    const data = await resp.json();
+                    alert('加载失败: ' + (data.detail || 'unknown error'));
+                }
+            } catch (e) {
+                alert('加载失败: ' + e.message);
+            }
+        }
+
+        refreshTestSceneList();
+
+        // Task2 functions
+        async function toggleTask2() {
+            const panel = document.getElementById('task2-panel');
+            panel.classList.toggle('hidden');
+            if (!panel.classList.contains('hidden')) {
+                await loadScenarioList();
+            }
+        }
+
+        async function loadScenarioList() {
+            try {
+                const resp = await fetch('/api/task2/scenarios');
+                const data = await resp.json();
+                scenarioListData = data.scenarios;
+                const list = document.getElementById('scenario-list');
+                if (data.total === 0) {
+                    list.innerHTML = '<p class="empty-text">暂无测试场景，请先生成</p>';
+                    return;
+                }
+                let html = '';
+                for (const item of data.scenarios) {
+                    html += `<div class="scenario-list-item" data-index="${item.index}" onclick="selectScenario(${item.index})">
+                        <div class="scenario-item-header">
+                            <span class="scenario-item-name">${item.scenario.name}</span>
+                            <span class="scenario-item-steps">${item.scenario.steps.length} 步</span>
+                        </div>
+                        <div class="scenario-item-feature">${item.feature_name}</div>
+                    </div>`;
+                }
+                list.innerHTML = html;
+            } catch (e) {
+                document.getElementById('scenario-list').innerHTML = '<p class="error-text">加载失败: ' + e.message + '</p>';
+            }
+        }
+
+        function selectScenario(index) {
+            selectedScenarioIndex = index;
+            document.querySelectorAll('.scenario-list-item').forEach(el => el.classList.remove('selected'));
+            document.querySelector(`.scenario-list-item[data-index="${index}"]`).classList.add('selected');
+            document.getElementById('btn-run-selected').disabled = false;
+            document.getElementById('task2-result').classList.add('hidden');
+            document.getElementById('task2-empty').classList.remove('hidden');
+        }
+
+        async function runSelectedScenario() {
+            if (selectedScenarioIndex < 0) return;
+
+            const btn = document.getElementById('btn-run-selected');
+            const progress = document.getElementById('task2-progress');
+            const statusText = document.getElementById('task2-status-text');
+            const progressFill = document.getElementById('task2-progress-fill');
+            const resultDiv = document.getElementById('task2-result');
+            const resultContent = document.getElementById('result-content');
+            const emptyDiv = document.getElementById('task2-empty');
+
+            btn.disabled = true;
+            progress.classList.remove('hidden');
+            resultDiv.classList.add('hidden');
+            emptyDiv.classList.add('hidden');
+
+            task2Timer = setInterval(pollTask2Progress, 500);
+
+            const formData = new FormData();
+            formData.append('scenario_index', selectedScenarioIndex);
+            formData.append('headless', document.getElementById('headless-mode').checked);
+
+            try {
+                const resp = await fetch('/api/task2/run', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.detail || '执行失败');
+
+                clearInterval(task2Timer);
+                progressFill.style.width = '100%';
+                statusText.textContent = '执行完成 ✅';
+
+                if (data.result) {
+                    displayResult(data.result, resultContent);
+                }
+                resultDiv.classList.remove('hidden');
+            } catch (e) {
+                clearInterval(task2Timer);
+                statusText.textContent = '❌ ' + e.message;
+                resultDiv.classList.remove('hidden');
+                resultContent.innerHTML = `<div class="result-error">错误: ${e.message}</div>`;
+            }
+            btn.disabled = false;
+        }
+
+        async function pollTask2Progress() {
+            try {
+                const resp = await fetch('/api/task2/progress');
+                const p = await resp.json();
+                const fill = document.getElementById('task2-progress-fill');
+                const text = document.getElementById('task2-status-text');
+                if (fill) fill.style.width = p.progress_pct + '%';
+                if (text) text.textContent = p.detail || p.status;
+            } catch (e) {}
+        }
+
+        function displayResult(result, container) {
+            const rulePassed = result.rule_based && result.rule_based.passed;
+            const llmPassed = result.llm_based && result.llm_based.passed;
+
+            let html = `<div class="result-summary">
+                <div class="result-status ${result.status === 'completed' ? 'status-ok' : 'status-error'}">
+                    ${result.status === 'completed' ? '执行成功' : '执行失败'}
+                </div>
+                <div class="result-event-count">执行事件: ${result.event_count || 0}</div>
+            </div>`;
+
+            if (result.rule_based) {
+                const r = result.rule_based;
+                html += `<div class="result-section">
+                    <h4>结构化验证 ${r.passed ? '✅' : '❌'}</h4>
+                    <p>通过: ${r.total_expectations - r.failed_expectations}/${r.total_expectations}</p>
+                    ${r.final_url ? `<p class="llm-reason">最终页面: ${r.final_path || r.final_url}</p>` : ''}
+                    ${r.errors && r.errors.length > 0 ? `
+                    <ul class="result-errors">
+                        ${r.errors.map(e => `<li>${e.expectation}: ${e.reason}</li>`).join('')}
+                    </ul>` : ''}
+                    ${r.details ? `
+                    <div class="result-details">
+                        ${r.details.map(d => `<div class="detail-item ${d.matched ? 'match-yes' : 'match-no'}">
+                            <span>${d.expectation}</span>
+                            <span>${d.matched ? '✅' : '❌'}</span>
+                            ${d.method ? `<span class="method-tag">${d.method}</span>` : ''}
+                        </div>`).join('')}
+                    </div>` : ''}
+                </div>`;
+            }
+
+            if (result.llm_based) {
+                const l = result.llm_based;
+                html += `<div class="result-section">
+                    <h4>文本 LLM 验证 ${l.passed ? '✅' : '❌'}</h4>
+                    <p>${l.passed ? '测试通过' : '测试失败'}</p>
+                    ${l.reason ? `<p class="llm-reason">原因: ${l.reason}</p>` : ''}
+                </div>`;
+            }
+
+            container.innerHTML = html;
         }
     </script>
 </body>

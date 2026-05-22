@@ -45,13 +45,15 @@
 ├── docs_cache/
 │   └── pages.json            # 用户手册本地缓存（19 页）
 ├── chroma_db/                # Chroma 向量库持久化目录
+├── testscene/                # Task1 历史生成场景存档（自动生成）
 └── src/
     ├── __init__.py
     ├── task1_scenario_generation/
     │   ├── __init__.py
     │   ├── models.py          # FeaturePoint / TestScenario / TestStep / TestExpectation
     │   ├── docs_scraper.py    # 文档爬取（优先读本地缓存）
-    │       ├── knowledge_base.py  # LLM 工厂（get_llm + 费用追踪回调）
+    │   ├── demo_crawler.py    # Demo站UI爬虫（获取实际可操作元素）
+    │   ├── knowledge_base.py  # LLM 工厂（get_llm + 费用追踪回调）
     │   └── scenario_generator.py  # LLM 提取功能点 + 生成测试场景
     ├── utils/                  # 工具模块
     │   ├── __init__.py
@@ -72,6 +74,7 @@
     └── web_ui/
         ├── __init__.py
         ├── main.py            # FastAPI 路由 + 进度追踪
+        ├── default_features.json  # 默认场景（启动即用，免LLM）
         ├── templates/
         │   └── index.html     # 可视化页面
         └── static/
@@ -292,6 +295,12 @@ pages.json ─→ RecursiveCharacterTextSplitter
 | GET | `/api/cost-report` | LLM 费用报告 |
 | POST | `/api/cost-reset` | 重置费用统计 |
 | POST | `/api/generate-single` | 为指定功能点单独生成测试场景 |
+| GET | `/api/testscene/list` | 列出历史生成场景存档 |
+| POST | `/api/testscene/load` | 加载指定历史存档 |
+| GET | `/api/task2/scenarios` | 获取所有可执行场景列表 |
+| GET | `/api/task2/progress` | Task2执行进度轮询 |
+| GET | `/api/task2/results` | 获取Task2执行结果 |
+| POST | `/api/task2/run` | 执行指定测试场景 |
 
 ---
 
@@ -327,16 +336,19 @@ pages.json ─→ RecursiveCharacterTextSplitter
 
 ### 基础功能档
 
-- [x] **Task 1**：根据用户手册识别主要功能点（14 个），生成主要功能的测试场景（65 个），格式符合要求
+- [ ] **Task 1**：根据用户手册识别主要功能点，生成可执行的测试场景
   - 实现方式：Embedding/PageIndex 双检索 + LLM 提取功能点，生成 `TestScenario`（steps + expectations）
-- [ ] **Task 2**：智能体能够执行简单测试场景，验证执行完整性与功能正确性
-  - 实现方式：Planner 解析 → Executor 执行 → Verifier 验证（开发中）
+  - 当前状态：骨架完成，但生成质量待优化（target 与实际 UI 不匹配，文档利用不充分）
+- [x] **Task 2**：智能体能够执行简单测试场景，验证执行完整性与功能正确性
+  - 实现方式：Planner 解析 → Executor 执行（Playwright）→ Verifier 验证（结构化 + LLM）
+  - 当前状态：核心链路跑通（Login → Plan → Execute → Verify），可执行 3 场景 6 用例
 
 ### 提升创新档
 
-- [x] **Task 1 提升**：
+- [ ] **Task 1 提升**：
   - 正确性与全面性：双检索策略（Embedding + PageIndex）+ Reranker 重排序，提高检索准确率
-  - 粒度与可执行性：功能划分粒度适中（14 个功能点），场景步骤具体可被 Playwright 执行
+  - 粒度与可执行性：功能划分粒度适中，场景步骤需对准实际 UI
+  - ⚠️ 待优化：文档利用不完整（仅 800 字摘要），target 与实际 UI 元素不匹配
 - [ ] **Task 2 提升**：
   - 通过率与稳定性：提升执行准确率，支持中等 / 困难场景
   - 变异测试：对测试场景做变异，检测应用错误
@@ -482,3 +494,167 @@ tracker.reset()                    # 重置统计数据
 | Input (cache miss) | $0.14 |
 | Input (cache hit) | $0.0028 |
 | Output | $0.28 |
+
+---
+
+## 十六、迭代记录 — 2026-05-22
+
+### 16.1 Task 2 核心重构
+
+对 Task 2 进行了大规模重写，使智能体能真正端到端执行测试场景。
+
+#### Executor 重写（`src/task2_testing_agent/executor.py`）
+
+| 改进项 | 说明 |
+|--------|------|
+| **自动登录** | 从 `.env` 读取 `4GABOARD_ACCOUNT`/`4GABOARD_PASSWORD`，登录 demo 站（email + password） |
+| **智能元素定位** | 多策略查找元素：`text` → `placeholder` → `aria-label` → `title` → `name` → CSS selector，逐步降级 |
+| **9 种操作类型** | `click` / `fill` / `navigate` / `wait` / `screenshot` / `check` / `uncheck` / `hover` / `scroll` |
+| **提交表单识别** | 自动匹配 `button[type="submit"]`，兜底 Enter 键提交 |
+| **Popup/Modal 优先** | 弹窗打开时优先在弹窗内查找输入框（修复了填到搜索框的 bug） |
+| **SPA 导航等待** | 提交后轮询 URL 变化，适应 React SPA 的路由跳转 |
+| **每步状态捕获** | 每次操作后记录 URL、`path`、页面可见文本、关键元素列表 |
+| **失败截图** | 步骤失败时自动截图到临时目录 |
+
+#### Planner（`src/task2_testing_agent/planner.py`）
+
+- 加入 `step_type` 标注（click / fill / navigate / wait 等），便于 executor 路由
+- `context` 参数预留，后续可用于 LLM 动态规划
+
+#### Verifier 重写（`src/task2_testing_agent/verifier.py`）
+
+| 验证方式 | 方法 | 速度 | 准确性 |
+|---------|------|------|--------|
+| **结构化验证**（主力） | 检查 URL 路径模式（`/projects/...`）、页面文本、关键元素存在性 | 即时 | ✅ |
+| **LLM 验证**（辅助） | 执行轨迹 + 页面状态 → DeepSeek 判断 | ~几秒 | ⚠️ 偶有假阴性 |
+
+**去掉了多模态验证**（`MM_MODEL` 相关配置保留但不再用于验证流程），原因是：
+- API 响应慢（最好情况 1-2s/请求）
+- 模型对截图的理解不精确（假阳性/假阴性）
+
+#### Web UI
+
+- 添加「智能测试执行」侧边面板：场景列表 → 选择 → 执行 → 查看结果
+- 4 个新 API 路由：
+  - `GET /api/task2/scenarios` — 平坦化场景列表
+  - `GET /api/task2/progress` — 执行进度轮询
+  - `GET /api/task2/results` — 执行结果
+  - `POST /api/task2/run` — 执行指定场景
+- Task2 按钮常亮（不再依赖 Task1 是否跑过）
+
+### 16.2 Task 1 改进
+
+#### Demo 站 UI 爬虫（`src/task1_scenario_generation/demo_crawler.py`）
+
+新增模块，用于登录 demo 站后爬取实际 UI 元素：
+- 收集可见按钮文本、链接、输入框
+- 进入项目页面收集 board view 元素
+- 打开「添加项目」弹窗，记录弹窗内元素结构
+- 输出结果缓存在内存中，减少重复爬取
+
+#### 场景生成 Prompt 优化（`src/task1_scenario_generation/scenario_generator.py`）
+
+- 特征提取 prompt 加入排除规则：不再提取注册、SSO、管理员设置等 demo 站不支持的功能
+- 场景生成 prompt 加入实际 UI 元素信息：引导 LLM 使用 demo 站真实存在的元素文本作为 `target`
+- 限制生成操作类型：仅生成 click/fill/navigate/wait，不生成拖拽、文件上传、键盘快捷键等
+
+#### 默认场景数据（`src/web_ui/default_features.json`）
+
+内置 3 个功能点 / 6 个场景，启动即用，无需调用 LLM：
+- 项目管理：创建项目、侧边栏导航、搜索项目
+- 面板管理：添加面板
+- 看板视图：查看看板、添加卡片
+
+#### 持久化与历史记录
+
+- 启动时自动加载 `features.json`（无则加载 `default_features.json`）
+- 重新生成场景后自动保存到 `testscene/testscene_YYYY_MM_DD_HH_MM_SS.json`
+- 顶部下拉框可切换加载任意历史版本
+- 新增 API：
+  - `GET /api/testscene/list` — 列出历史版本
+  - `POST /api/testscene/load` — 加载指定版本
+- 「重新生成测试场景」按钮有确认弹窗，防止误触
+
+### 16.3 仍需加强的部分
+
+#### Task 1：场景生成质量
+
+当前问题：
+- 功能点提取只用了 docs 的前 800 字符摘要，未覆盖完整手册内容（19 页）
+- 生成 prompt 虽然有 demo UI 信息，但 LLM 生成的 target 仍可能不匹配实际 UI
+- 撤回率：无法保证每个功能点都生成了可执行的场景
+- 场景粒度不均：有的 2 步，有的 8 步
+
+建议改进方向：
+- 用更完整的文档上下文（增大 `content[:800]` 或多次检索）
+- 对生成的场景做可执行性校验（pre-flight check），过滤掉 executor 无法处理的步骤
+- 考虑将 UI 探索结果结构化后注入 prompt（而非纯文本）
+- 增加场景的后处理步骤：清洗 target 为实际 UI 文本
+
+#### Task 2：智能体完整度
+
+当前状态：核心链路（Login → Plan → Execute → Verify）已跑通，可执行简单场景。
+
+**Agent**（`agent.py`）：
+- ✅ 自动登录
+- ✅ 执行计划
+- ❌ 无场景预检（场景执行前检查步骤是否可执行）
+- ❌ 无重试机制（步骤失败直接中止）
+- ❌ 执行报告未持久化
+
+**Executor**（`executor.py`）：
+- ✅ 登录
+- ✅ 点击（文本匹配）
+- ✅ 填写输入框
+- ✅ 表单提交
+- ✅ 导航
+- ❌ 下拉选择（`<select>`）
+- ❌ 复选框/单选框
+- ❌ 文件上传
+- ❌ 拖拽操作
+- ❌ 元素等待/显式等待策略
+- ❌ 弹窗/确认框处理（Alert/Confirm/Prompt）
+
+**Planner**（`planner.py`）：
+- ❌ 未真正使用 LLM 做动态规划
+- ❌ `context` 参数未接入
+- ❌ 无错误恢复策略
+
+**Verifier**（`verifier.py`）：
+- ✅ 结构化验证（URL 模式、文本匹配、元素存在性）
+- ✅ LLM 验证
+- ❌ 缺少截图对比验证
+- ❌ 验证规则不可扩展（硬编码在 `_check_*` 方法中）
+- ❌ 无验证结果聚合/报告
+
+**Memory**（`memory.py`）：
+- ✅ 事件记录
+- ✅ 页面状态键值存储
+- ❌ 缺少截图历史
+- ❌ `get_context()` 信息密度低（仅输出 event 名称）
+- ❌ 无法回溯到特定时间点的状态
+
+**整体架构**：
+- ❌ 无 CLI 入口（只能通过 Web UI 调用）
+- ❌ 无批量执行模式
+- ❌ 无测试报告导出
+- ❌ 无执行日志持久化
+- ❌ 无并发/并行执行支持
+
+### 16.4 文件变更清单
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `src/task2_testing_agent/executor.py` | 重写 | 登录、智能定位、9种操作、状态捕获 |
+| `src/task2_testing_agent/agent.py` | 重写 | 自动登录、加载.env、结果处理 |
+| `src/task2_testing_agent/verifier.py` | 重写 | 结构化验证 + LLM验证，去掉多模态 |
+| `src/task2_testing_agent/planner.py` | 重写 | 步骤类型标注 |
+| `src/task2_testing_agent/memory.py` | 不变 | — |
+| `src/task1_scenario_generation/demo_crawler.py` | 新增 | demo站UI爬虫 |
+| `src/task1_scenario_generation/scenario_generator.py` | 修改 | prompt加入demo UI约束 |
+| `src/task1_scenario_generation/knowledge_base.py` | 修改 | 去掉多模态client |
+| `src/web_ui/main.py` | 修改 | 默认加载、testscene存档、Task2路由 |
+| `src/web_ui/default_features.json` | 新增 | 默认场景数据 |
+| `src/web_ui/templates/index.html` | 修改 | Task2面板、历史选择器 |
+| `src/web_ui/static/style.css` | 修改 | Task2面板样式 |
+| `.env` | 修改 | 加入MM_MODEL配置 |
