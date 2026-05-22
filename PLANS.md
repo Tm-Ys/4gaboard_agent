@@ -193,7 +193,7 @@ pages.json ─→ RecursiveCharacterTextSplitter
               相关文档块 → LLM 上下文
 ```
 
-- Embedding 模型：`text-embedding-ada-002`（通过 DeepSeek API 兼容接口）
+- Embedding 模型：`TOOL_EMBEDDING_MODEL`（通过 TOOL_API 接口调用）
 - 检索策略：对每个功能点，以其描述作为 query 检索最相关文档块
 
 ### 6.3 测试场景生成
