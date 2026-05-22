@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>4gaBoard 测试场景生成器</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>4gaBoard 测试场景生成与智能测试工具</h1>
+            <p class="subtitle">基于大模型的测试场景自动生成与自主执行</p>
+            <div class="toolbar">
+                <div class="mode-badge">检索：<strong>{{ retriever_mode }}</strong></div>
+                <button id="btn-scrape" onclick="startGeneration()">开始生成测试场景</button>
+                <button id="btn-cost" onclick="showCost()">查看 LLM 消耗</button>
+            </div>
+            <div id="status-bar" class="hidden"></div>
+        </header>
+
+        <div id="cost-modal" class="modal hidden">
+            <div class="modal-content">
+                <span class="close" onclick="closeCost()">&times;</span>
+                <pre id="cost-report"></pre>
+            </div>
+        </div>
+
+        <main>
+            <div id="features-container">
+                {% if features %}
+                    <div class="stats-bar">
+                        <span>共 <strong>{{ features|length }}</strong> 个功能点</span>
+                        {% set ns = namespace(scenarios=0) %}
+                        {% for f in features %}
+                            {% set ns.scenarios = ns.scenarios + f.scenarios|length %}
+                        {% endfor %}
+                        <span>｜<strong>{{ ns.scenarios }}</strong> 个测试场景</span>
+                    </div>
+                    {% for feature in features %}
+                    <div class="feature-card">
+                        <h2>{{ feature.name }}</h2>
+                        <p class="feature-desc">{{ feature.description }}</p>
+                        {% if feature.scenarios %}
+                        <div class="scenarios">
+                            {% for scenario in feature.scenarios %}
+                            <div class="scenario-card">
+                                <div class="scenario-header">
+                                    <h3>{{ scenario.name }}</h3>
+                                    <span class="step-count">{{ scenario.steps|length }} 步</span>
+                                </div>
+                                <p class="scenario-desc">{{ scenario.description }}</p>
+                                <div class="scenario-detail">
+                                    <div class="steps">
+                                        <h4>操作步骤</h4>
+                                        <ol>
+                                            {% for step in scenario.steps %}
+                                            <li>
+                                                <span class="step-action">{{ step.action }}</span>
+                                                {% if step.target %}<span class="step-target">{{ step.target }}</span>{% endif %}
+                                            </li>
+                                            {% endfor %}
+                                        </ol>
+                                    </div>
+                                    <div class="expectations">
+                                        <h4>预期结果</h4>
+                                        <ul>
+                                            {% for exp in scenario.expectations %}
+                                            <li>{{ exp.description }}</li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <p class="no-scenario">暂无测试场景</p>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-state">
+                        <div class="empty-icon">📋</div>
+                        <h3>尚未生成测试场景</h3>
+                        <p>点击上方「开始生成测试场景」按钮，系统将：</p>
+                        <ol class="steps-guide">
+                            <li>读取本地缓存的用户手册（19 页）</li>
+                            <li>构建检索索引</li>
+                            <li>调用 LLM 提取功能点</li>
+                            <li>为每个功能点生成测试场景</li>
+                        </ol>
+                    </div>
+                {% endif %}
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let progressTimer = null;
+
+        async function startGeneration() {
+            const btn = document.getElementById('btn-scrape');
+            const bar = document.getElementById('status-bar');
+            btn.disabled = true;
+            bar.className = 'status-bar status-loading';
+            bar.textContent = '正在启动...';
+            bar.innerHTML = '<div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div><span id="status-text">正在启动...</span>';
+
+            progressTimer = setInterval(pollProgress, 1000);
+            try {
+                const resp = await fetch('/scrape-and-generate', { method: 'POST' });
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.detail || '生成失败');
+            } catch (e) {
+                bar.className = 'status-bar status-error';
+                bar.innerHTML = '<span>错误: ' + e.message + '</span>';
+            }
+        }
+
+        async function pollProgress() {
+            try {
+                const resp = await fetch('/api/progress');
+                const p = await resp.json();
+                const bar = document.getElementById('status-bar');
+                const fill = document.getElementById('progress-fill');
+                const text = document.getElementById('status-text');
+
+                if (fill) fill.style.width = p.progress_pct + '%';
+                if (text) {
+                    if (p.status === 'running') {
+                        text.textContent = p.detail || p.current_step;
+                    } else if (p.status === 'done') {
+                        text.textContent = p.detail + ' ✅';
+                        clearInterval(progressTimer);
+                        setTimeout(() => window.location.reload(), 1500);
+                    } else if (p.status === 'error') {
+                        text.textContent = '❌ ' + p.detail;
+                        clearInterval(progressTimer);
+                        document.getElementById('btn-scrape').disabled = false;
+                    }
+                }
+            } catch (e) {
+                // ignore poll errors
+            }
+        }
+
+        async function showCost() {
+            const resp = await fetch('/api/cost-report');
+            const data = await resp.json();
+            document.getElementById('cost-report').textContent = data.report_text;
+            document.getElementById('cost-modal').classList.remove('hidden');
+        }
+
+        function closeCost() {
+            document.getElementById('cost-modal').classList.add('hidden');
+        }
+        window.onclick = function(e) {
+            if (e.target === document.getElementById('cost-modal')) closeCost();
+        }
+    </script>
+</body>
+</html>

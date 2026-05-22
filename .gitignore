@@ -147,6 +147,9 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
+# chroma_db vector db 
+chroma_db/
+
 # Environments
 .env
 .envrc
@@ -216,3 +219,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# llm api environment
+.env
