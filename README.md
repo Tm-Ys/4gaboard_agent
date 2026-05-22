@@ -18,6 +18,10 @@ source .venv/bin/activate  # Linux/Mac
 pip install -r requirements.txt
 playwright install chromium
 
+
+# 加入自己的API
+nano .env
+
 # 启动
 python run.py
 # 浏览器打开 http://127.0.0.1:8000
