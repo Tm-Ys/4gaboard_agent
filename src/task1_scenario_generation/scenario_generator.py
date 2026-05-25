@@ -40,6 +40,7 @@ FEATURE_EXTRACTION_SYSTEM = (
     "要求：\n"
     "- 功能点粒度适中\n"
     "- 覆盖手册中提到的所有核心功能区域\n"
+    "- 排除以下功能（演示站不支持）：账户注册、SSO/OAuth登录、管理员设置、实例管理\n"
     "- 返回 JSON 数组，格式：\n"
     '[{"name": "功能点名称", "description": "功能点描述"}]'
 )
@@ -52,12 +53,17 @@ FEATURE_RETRY_SYSTEM = (
 
 SCENARIO_SYSTEM_TEMPLATE = (
     "你是一个测试场景设计师，正在为「4ga Boards」看板项目管理工具设计测试场景。\n\n"
-    "要求：\n"
+    "## 文档上下文\n"
+    "{doc_context}\n\n"
+    "## Demo 站 UI 信息\n"
+    "{demo_ui_context}\n\n"
+    "## 生成要求\n"
     "- 每个功能点生成 2~4 个独立的测试场景\n"
     "- 场景覆盖：基本功能流程、异常/边界情况\n"
-    "- 每一步操作必须具体、可被浏览器自动化执行\n"
-    "- 预期结果必须可验证（页面变化、弹窗出现、数据变化等）\n"
-    "- 参考以下文档上下文来确保场景的准确性\n\n"
+    "- target 字段必须使用上面 UI 信息中实际可见的元素文本\n"
+    "- action 字段使用语义描述（如'点击添加项目'、'输入项目名称'）\n"
+    "- 预期结果必须可验证（页面跳转、弹窗出现、数据变化等）\n"
+    "- 不要生成涉及：注册、SSO/OAuth登录、文件上传、拖拽、键盘快捷键的场景\n\n"
     "返回 JSON 格式（必须严格遵循）：\n"
     '{{\n'
     '  "scenarios": [\n'
@@ -65,18 +71,18 @@ SCENARIO_SYSTEM_TEMPLATE = (
     '      "name": "创建新项目",\n'
     '      "description": "验证用户可以通过侧边栏创建新项目",\n'
     '      "steps": [\n'
-    '        {{"action": "点击侧边栏的添加按钮", "target": "sidebar add button"}},\n'
-    '        {{"action": "输入项目名称", "target": "项目名称输入框"}},\n'
-    '        {{"action": "点击创建按钮", "target": "创建按钮"}}\n'
+    '        {{"action": "点击添加项目", "target": "添加项目"}},\n'
+    '        {{"action": "输入项目名称", "target": "Test Project"}},\n'
+    '        {{"action": "点击提交", "target": "提交"}}\n'
     '      ],\n'
     '      "expectations": [\n'
     '        {{"description": "新项目出现在侧边栏列表中"}},\n'
-    '        {{"description": "页面跳转到新项目的默认看板视图"}}\n'
+    '        {{"description": "页面跳转到新项目的看板视图"}}\n'
     '      ]\n'
     '    }}\n'
     '  ]\n'
     '}}\n\n'
-    "参考文档上下文：\n{context}"
+    "只返回 JSON，不要额外文字。"
 )
 
 
@@ -105,12 +111,19 @@ def extract_features(doc_context: str, max_retries: int = 2) -> List[FeaturePoin
     return []
 
 
-def generate_scenarios(feature: FeaturePoint, retriever: Retriever, max_retries: int = 2) -> FeaturePoint:
+def generate_scenarios(feature: FeaturePoint, retriever: Retriever, max_retries: int = 2,
+                       demo_ui_context: str | None = None) -> FeaturePoint:
     docs = retriever.retrieve(feature.description, k=5)
-    context = "\n\n---\n\n".join(
+    doc_context = "\n\n---\n\n".join(
         f"[{d['title']}]({d['url']})\n{d['content'][:1500]}" for d in docs
     )
-    system_msg = SCENARIO_SYSTEM_TEMPLATE.format(context=context)
+    if not demo_ui_context:
+        from .demo_crawler import get_demo_ui_context
+        demo_ui_context = get_demo_ui_context()
+    system_msg = SCENARIO_SYSTEM_TEMPLATE.format(
+        doc_context=doc_context,
+        demo_ui_context=demo_ui_context,
+    )
     messages = [
         SystemMessage(content=system_msg),
         HumanMessage(content=f"请为功能点「{feature.name}」设计测试场景。\n功能描述：{feature.description}"),

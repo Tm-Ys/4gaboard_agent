@@ -150,6 +150,10 @@ activemq-data/
 # chroma_db vector db 
 chroma_db/
 
+# auto-generated features
+features.json
+testscene/
+
 # Environments
 .env
 .envrc
