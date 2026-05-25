@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader
 from src.task1_scenario_generation.models import FeaturePoint, TestScenario
 from src.task1_scenario_generation.docs_scraper import scrape_all_docs
-from src.task1_scenario_generation.knowledge_base import get_llm
+from src.task1_scenario_generation.knowledge_base import llm_invoke
 from src.task1_scenario_generation.scenario_generator import extract_features, generate_scenarios, _clean_json
 from src.retrieval.factory import create_retriever, RETRIEVER_MODE_KEY
 
@@ -145,7 +145,6 @@ async def generate_single(feature_name: str = Form(...)):
     docs = retriever.retrieve(feature_name, k=3)
     context = "\n".join([d["content"] for d in docs])
 
-    llm = get_llm()
     tmpl = (
         '请为功能点"{name}"生成一个测试场景。'
         "参考以下文档内容：\n{ctx}\n"
@@ -154,7 +153,8 @@ async def generate_single(feature_name: str = Form(...)):
         '"expectations": [{{"description": "..."}}]}}'
     )
     prompt = tmpl.format(name=feature_name, ctx=context)
-    response = llm.invoke(prompt)
+    from langchain_core.messages import HumanMessage
+    response = llm_invoke([HumanMessage(content=prompt)])
     data = json.loads(_clean_json(response.content))
     scenario = TestScenario(**data)
     return scenario.model_dump()

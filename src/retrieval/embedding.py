@@ -3,6 +3,7 @@ import time
 import requests
 from typing import List, Dict
 from dotenv import load_dotenv
+from src.utils.log import logger
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
@@ -76,7 +77,7 @@ class EmbeddingRetriever(Retriever):
                 if attempt < EMBED_RETRIES - 1:
                     time.sleep(2 ** attempt)
                 else:
-                    print(f"  WARN: Embedding build failed, using PageIndex fallback: {e}")
+                    logger.warning("Embedding build failed, using PageIndex fallback: %s", e)
                     self._build_fallback(pages)
 
     def _build_fallback(self, pages: List[Dict[str, str]]) -> None:
@@ -115,7 +116,7 @@ class EmbeddingRetriever(Retriever):
                 if attempt < EMBED_RETRIES - 1:
                     time.sleep(2 ** attempt)
                 else:
-                    print(f"  WARN: Embedding retrieve failed, using PageIndex fallback: {e}")
+                    logger.warning("Embedding retrieve failed, using PageIndex fallback: %s", e)
                     if self._fallback:
                         return self._fallback.retrieve(query, k=k)
                     return []
@@ -153,5 +154,5 @@ def _rerank(query: str, documents: List[Dict[str, str]], top_k: int = 5) -> List
                 ordered.append(documents[idx])
         return ordered if ordered else documents[:top_k]
     except Exception as e:
-        print(f"  WARN: reranker failed: {e}")
+        logger.warning("reranker failed: %s", e)
         return documents[:top_k]

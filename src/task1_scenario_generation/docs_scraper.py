@@ -1,6 +1,7 @@
 import json, os, requests, re
 from bs4 import BeautifulSoup
-from typing import List, Dict
+from typing import List, Dict, Optional
+from src.utils.log import logger
 
 DOCS_BASE = "https://docs.4gaboards.com"
 CACHE_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "docs_cache", "pages.json")
@@ -16,7 +17,7 @@ PAGE_PATHS = [
 ]
 
 
-def load_from_cache() -> List[Dict[str, str]] | None:
+def load_from_cache() -> Optional[List[Dict[str, str]]]:
     if os.path.exists(CACHE_PATH):
         with open(CACHE_PATH, "r", encoding="utf-8") as f:
             return json.load(f)

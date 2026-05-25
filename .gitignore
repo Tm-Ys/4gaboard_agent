@@ -223,3 +223,10 @@ __marimo__/
 
 # llm api environment
 .env
+
+# Temporary files
+tmp/
+
+# Test reports
+testscene/
+features.json

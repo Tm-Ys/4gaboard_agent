@@ -1,10 +1,10 @@
 import json
 from typing import List
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage, HumanMessage
-from .knowledge_base import get_llm
+from .knowledge_base import llm_invoke
 from .models import FeaturePoint, TestScenario, TestStep, TestExpectation
 from src.retrieval.base import Retriever
+from src.utils.log import logger
 
 
 def _clean_json(text: str) -> str:
@@ -81,7 +81,6 @@ SCENARIO_SYSTEM_TEMPLATE = (
 
 
 def extract_features(doc_context: str, max_retries: int = 2) -> List[FeaturePoint]:
-    llm = get_llm()
     messages = [
         SystemMessage(content=FEATURE_EXTRACTION_SYSTEM),
         HumanMessage(content=f"以下是用户手册各页面内容（标题 + 内容摘要）：\n\n{doc_context}"),
@@ -89,8 +88,8 @@ def extract_features(doc_context: str, max_retries: int = 2) -> List[FeaturePoin
 
     for attempt in range(max_retries + 1):
         try:
-            response = llm.invoke(messages)
-            data = _parse_json_safe(response.content)
+            response = llm_invoke(messages)
+            data = _parse_json_safe(response)
             items = data if isinstance(data, list) else data.get("features", data.get("功能点", []))
             result = [FeaturePoint(**item) for item in items]
             if result:
@@ -107,7 +106,6 @@ def extract_features(doc_context: str, max_retries: int = 2) -> List[FeaturePoin
 
 
 def generate_scenarios(feature: FeaturePoint, retriever: Retriever, max_retries: int = 2) -> FeaturePoint:
-    llm = get_llm()
     docs = retriever.retrieve(feature.description, k=5)
     context = "\n\n---\n\n".join(
         f"[{d['title']}]({d['url']})\n{d['content'][:1500]}" for d in docs
@@ -120,8 +118,8 @@ def generate_scenarios(feature: FeaturePoint, retriever: Retriever, max_retries:
 
     for attempt in range(max_retries + 1):
         try:
-            response = llm.invoke(messages)
-            data = _parse_json_safe(response.content)
+            response = llm_invoke(messages)
+            data = _parse_json_safe(response)
             items = data if isinstance(data, list) else data.get("scenarios", [])
             scenarios = []
             for item in items:
@@ -139,5 +137,5 @@ def generate_scenarios(feature: FeaturePoint, retriever: Retriever, max_retries:
                 return feature
         except (json.JSONDecodeError, ValueError, TypeError) as e:
             if attempt == max_retries:
-                print(f"  WARN: scenario generation failed for '{feature.name}': {e}")
+                logger.warning("scenario generation failed for '%s': %s", feature.name, e)
     return feature
