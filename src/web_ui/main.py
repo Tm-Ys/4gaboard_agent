@@ -298,6 +298,79 @@ async def task2_run_scenario(scenario_index: int = Form(...), headless: bool = F
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/task2/run-all")
+async def task2_run_all(headless: bool = Form(True)):
+    import asyncio
+    global task2_results
+    if not features:
+        raise HTTPException(status_code=400, detail="No features available")
+
+    flat = [(f, s) for f in features for s in f.scenarios]
+    task2_results = {}
+    task2_progress.update(
+        status="running",
+        current_scenario="批量执行",
+        detail=f"开始批量执行 {len(flat)} 个场景...",
+        progress_pct=0,
+        scenario_index=0,
+        total_scenarios=len(flat),
+    )
+
+    results = []
+    for i, (f, s) in enumerate(flat):
+        task2_progress.update(
+            status="running",
+            current_scenario=s.name,
+            detail=f"[{i+1}/{len(flat)}] 正在执行: {s.name}",
+            progress_pct=int((i + 1) / len(flat) * 100),
+            scenario_index=i,
+        )
+        from src.task2_testing_agent.agent import TestingAgent
+        agent = TestingAgent(headless=headless)
+        result = agent.run_scenario(s)
+        task2_results[s.name] = result
+        results.append(result)
+
+    passed = sum(1 for r in results if r.get("rule_based", {}).get("passed"))
+    task2_progress.update(
+        status="done",
+        detail=f"批量执行完成: {passed}/{len(flat)} 通过",
+        progress_pct=100,
+    )
+    return {
+        "status": "ok",
+        "total": len(results),
+        "passed": passed,
+        "failed": len(results) - passed,
+    }
+
+
+@app.get("/api/task2/reports")
+async def task2_list_reports():
+    from src.task2_testing_agent.agent import REPORT_DIR
+    os.makedirs(REPORT_DIR, exist_ok=True)
+    files = sorted(
+        [f for f in os.listdir(REPORT_DIR) if f.startswith("task2_report") and f.endswith(".json")],
+        reverse=True,
+    )
+    entries = []
+    for f in files:
+        path = os.path.join(REPORT_DIR, f)
+        try:
+            with open(path) as fh:
+                data = json.load(fh)
+            entries.append({
+                "filename": f,
+                "scenario": data.get("scenario", ""),
+                "rule_passed": data.get("rule_based", {}).get("passed"),
+                "llm_passed": data.get("llm_based", {}).get("passed"),
+                "event_count": data.get("event_count", 0),
+            })
+        except Exception:
+            entries.append({"filename": f, "error": True})
+    return {"reports": entries}
+
+
 @app.post("/api/generate-single")
 async def generate_single(feature_name: str = Form(...)):
     from src.retrieval.factory import create_retriever

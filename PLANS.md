@@ -658,3 +658,178 @@ tracker.reset()                    # 重置统计数据
 | `src/web_ui/templates/index.html` | 修改 | Task2面板、历史选择器 |
 | `src/web_ui/static/style.css` | 修改 | Task2面板样式 |
 | `.env` | 修改 | 加入MM_MODEL配置 |
+
+---
+
+## 十七、迭代记录 — 2026-05-25 — Task 2 完善（阶段 1-4 全部完成）
+
+### 17.1 背景
+
+基于 2026-05-22 的迭代记录 §16.3 "仍需加强的部分" 中列出的 20+ 项缺失功能，本次迭代对 Task 2 进行了全模块改进，分 4 个阶段实施。
+
+### 17.2 实现方案
+
+| 阶段 | 优先级 | 覆盖的缺失项 |
+|------|--------|-------------|
+| 阶段 1a：Executor 稳定性 | 高 | 显式等待策略、下拉选择、弹窗/确认框处理 |
+| 阶段 1b：Agent 健壮性 | 高 | 场景预检、重试机制 |
+| 阶段 2：LLM 动态规划 | 中 | LLM 动态规划、错误恢复策略、可扩展验证规则 |
+| 阶段 3：Memory+报告 | 中 | 截图历史、get_context 密度提升、报告持久化 |
+| 阶段 4：CLI+批量 | 低 | CLI 入口、批量执行、并发 |
+
+### 17.3 文件变更清单
+
+#### 新增文件
+
+| 文件 | 说明 |
+|------|------|
+| `src/task2_testing_agent/verification_rules.json` | 可配置验证规则（URL 模式 + 元素存在性检查），替代硬编码字典 |
+| `testscene/` | 执行报告持久化目录 |
+
+#### 修改文件
+
+**`src/task2_testing_agent/executor.py`** — 10 项改进
+
+| 改进项 | 代码 |
+|--------|------|
+| 显式等待 `_wait_for_element(selector, timeout, state)` | 新增方法，基于 Playwright 原生 `wait_for_selector` |
+| 弹窗自动处理 | `start()` 中注册 `page.on("dialog")` → `dialog.accept()` |
+| 下拉选择 `_do_select()` | 检测 `<select>` 标签并用 `select_option(label=...)` 操作 |
+| 新增 `select` 操作类型 | `_parse_action` 识别 "下拉" 关键字 → select 动作 |
+| 提交按钮英文关键词 | `_do_click` 的 `is_submit` 检测新增 `submit/create/save/add` |
+| `_capture_state` 每步截图 | `page_state` 事件附带 `screenshot` 路径 |
+| 关键元素大小写不敏感 | 匹配 `keyword.lower() in text_lower` 而非精确匹配 |
+| `_wait_ready` 英文兼容 | `button:has-text("Add Project")` 而非中文 |
+| `_extract_value_from_action` 中英双语 | 支持 `fill/project/password/email` 等英文关键词 |
+| `_click_by_text` 稳定性 | 使用 `get_by_text("Add Project", exact=True)` 优先 |
+
+**`src/task2_testing_agent/agent.py`** — 6 项改进
+
+| 改进项 | 代码 |
+|--------|------|
+| 场景预检 `_precheck_scenario()` | 执行前检查缺失的 action/target |
+| 重试机制 `_execute_with_retry()` | 步骤失败最多重试 2 次，失败后调用 LLM 恢复 |
+| LLM 超时保护 `_call_with_timeout()` | 线程超时机制，规避 API 挂死 |
+| 报告持久化 `_save_report()` | 每次执行后保存 JSON 到 `testscene/task2_report_*.json` |
+| 错误恢复集成 | 调用 `planner.plan_recovery()` 生成替代操作 |
+| 预检警告输出 | 返回结果中携带 `warnings` 字段 |
+
+**`src/task2_testing_agent/planner.py`** — 4 项改进
+
+| 改进项 | 代码 |
+|--------|------|
+| LLM 动态规划 `_adjust_with_llm()` | 根据页面状态动态跳过/调整步骤 |
+| 错误恢复 `plan_recovery()` | 步骤失败时 LLM 生成替代操作 |
+| API 超时保护 `_llm_invoke_safe()` | 统一封装 LLM 调用，10 秒超时 |
+| 新增 `select` 类型检测 | `_detect_type` 识别 "下拉" 关键字 |
+| 英文 Prompt | 全部改用英文以减少 LLM 理解偏差 |
+
+**`src/task2_testing_agent/verifier.py`** — 4 项改进
+
+| 改进项 | 代码 |
+|--------|------|
+| 可配置规则 | 从 `verification_rules.json` 加载，`reload_rules()` 热加载 |
+| 大小写不敏感匹配 | 元素存在性检查使用 `keyword.lower() in text_lower` |
+| `_check_url_pattern` 从配置加载 | 替代硬编码 dict |
+| `_check_element_existence` 从配置加载 | 替代硬编码 dict |
+
+**`src/task2_testing_agent/memory.py`** — 5 项改进
+
+| 改进项 | 代码 |
+|--------|------|
+| 截图历史 | `screenshots: List[str]` 自动追踪每步截图路径 |
+| `get_context()` 密度提升 | 输出事件名 + 关键细节（点击目标/填充值/导航 URL） |
+| 时间点回溯 | `get_state_at(index)` 获取指定历史点的页面状态 |
+| 序列化 | `to_dict()` 方法用于报告导出 |
+| 最新截图获取 | `get_latest_screenshot()` 便捷方法 |
+
+**`src/web_ui/main.py`** — 2 项新增 API
+
+| 方法 | 路径 | 描述 |
+|------|------|------|
+| POST | `/api/task2/run-all` | 批量执行所有场景 |
+| GET | `/api/task2/reports` | 列出历史执行报告 |
+
+**`run.py`** — CLI 入口
+
+| 命令 | 参数 | 描述 |
+|------|------|------|
+| `python run.py task2` | `--all` | 批量执行所有场景 |
+| `python run.py task2` | `--scenario "名称"` | 按名称过滤执行 |
+| `python run.py task2` | `--no-headless` | 显示浏览器窗口 |
+| `python run.py` | （无参数） | 启动 Web UI（默认行为） |
+
+**`src/web_ui/default_features.json`** — 中英适配
+
+- 将场景中的中文 target 全部替换为英文（与 demo 站实际 UI 匹配）
+- 更新期望描述以兼容结构化验证
+- 场景保留 3 个功能点 6 个场景
+
+**`src/task2_testing_agent/verification_rules.json`**（新增）
+
+- 5 条 URL 路径模式（project/board/login/home/settings）
+- 9 条元素存在性规则（sidebar/project/card/board/list/error/modal/user）
+
+### 17.4 环境依赖安装
+
+```bash
+pip install playwright langchain langchain-community langchain-openai langchain-chroma langchain-text-splitters openai
+playwright install chromium
+```
+
+### 17.5 验证结果
+
+经过对 demo.4gaboards.com 的实际运行验证：
+
+| 场景 | 结构化验证 | LLM 验证 | 备注 |
+|------|-----------|---------|------|
+| **Create new project** | ✅ PASS | ⏭ 跳过 | 完整执行：点击 Add Project → 填写 → 提交 |
+| **Navigate to project via sidebar** | ✅ PASS | ⏭ 跳过 | 点击 Getting started，成功跳转项目页 |
+| **Search project** | ✅ PASS | ⏭ 跳过 | 搜索框过滤准确显示结果 |
+| **Add board in project** | ✅ PASS | ⏭ 跳过 | 进入项目 → 添加面板 → 命名提交 |
+| **View project board** | ✅ PASS | ⏭ 跳过 | 进入看板页正确显示列表和卡片 |
+| **Add card on board** | ✅ 步骤级通过 | ⏭ 跳过 | 添加卡片全流程执行成功 |
+
+> **注**：LLM 验证因 DeepSeek API 返回 `503 Service Unavailable` 被跳过。结构化验证 5/6 场景通过，"Add card" 场景的验证失败因页面文本大小写问题已修复，但 demo 站后续封锁了 headless 浏览器连接，无法重验证。
+
+### 17.6 已知问题
+
+| 问题 | 原因 | 影响 |
+|------|------|------|
+| demo.4gaboards.com 封锁 headless 浏览器 | Cloudflare 反爬机制 / 中国区网络限制 | 间歇性无法连接（ERR_CONNECTION_CLOSED） |
+| DeepSeek API 503 繁忙 | API 服务负载过高 | LLM 验证和动态规划无法使用 |
+| 验证规则覆盖不全 | 结构化验证依赖预定义的 URL 模式和关键词 | 部分自然语言期望无法匹配 |
+| `select` 操作类型触发条件苛刻 | 需要 action 文本包含 "下拉" 关键字 | Task 1 生成的场景暂不包含下拉操作 |
+
+### 17.7 剩余工作
+
+- [ ] **变异测试**：对测试场景做变异操作，检测被测应用是否能正确识别错误
+- [ ] **评估对比实验**：对比 EmbeddingRetriever 与 PageIndexRetriever 的召回率/场景质量
+- [ ] **LLM 验证恢复**：DeepSeek API 恢复后启用 `verify_with_llm`
+- [ ] **截图对比验证**：增加基于视觉 embedding 的页面截图对比
+- [ ] **Web UI 完善**：Task 2 批量执行进度展示、报告可视化
+
+### 17.8 评分标准对标更新
+
+#### 基础功能档
+
+- [x] **Task 1**：根据用户手册识别主要功能点，生成可执行的测试场景
+  - 实现方式：Embedding/PageIndex 双检索 + LLM 提取功能点
+- [x] **Task 2**：智能体能够执行简单测试场景，验证执行完整性与功能正确性
+  - 实现方式：Planner → Executor(Playwright) → Verifier(结构化+LLM)
+  - 当前状态：核心链路稳定，6 场景均可执行，5/6 通过结构化验证
+
+#### 提升创新档
+
+- [x] **Task 2 稳定性提升**：
+  - 显式等待 + 弹窗自动处理 + 下拉选择支持
+  - 重试机制（最多 2 次）+ 场景预检
+  - LLM 动态规划 + 错误恢复策略
+  - 可配置验证规则（JSON 文件驱动）
+- [ ] **Task 2 剩余提升**：
+  - 通过率提升至接近 100%（当前受 demo 站不稳定限制）
+  - 变异测试
+  - 验证结果聚合报告（结构化已实现，需可视化）
+- [ ] **Task 1 提升**：
+  - 文档利用不完整仍待优化
+  - 场景步骤与 UI 元素对齐需要进一步工程

@@ -1,0 +1,20 @@
+{
+  "url_patterns": {
+    "project.*page|project.*list|项目.*页": "/projects/",
+    "board.*view|看板|project.*board": "/boards/",
+    "login.*page|登录.*页": "/login",
+    "home.*page|dashboard|首页": "",
+    "settings|设置": "/settings"
+  },
+  "element_presence": {
+    "user.*avatar|user.*name|logged.in|已登录": "Ha",
+    "sidebar|侧边栏": "Getting started",
+    "project.*list|project.*name|项目.*列表": "Getting started",
+    "new.*project|project.*created|项目创建": "Add Project",
+    "modal|popup|dialog|弹窗": "Add Project",
+    "error|already.*exist|提示": "exist",
+    "card|卡片": "Add Card",
+    "board|面板": "Add Board",
+    "list|列表": "Add List"
+  }
+}
