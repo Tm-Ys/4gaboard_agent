@@ -29,10 +29,9 @@ class Planner:
 
     def _llm_invoke_safe(self, prompt: str, timeout: int = 10):
         try:
-            from src.task1_scenario_generation.knowledge_base import get_llm
-            llm = get_llm()
-            llm.request_timeout = timeout
-            return llm.invoke(prompt)
+            from langchain_core.messages import HumanMessage
+            from src.task1_scenario_generation.knowledge_base import llm_invoke
+            return llm_invoke([HumanMessage(content=prompt)])
         except Exception:
             return None
 
@@ -47,7 +46,7 @@ class Planner:
             response = self._llm_invoke_safe(prompt)
             if not response:
                 return None
-            text = response.content.strip()
+            text = response.strip()
             if text.startswith("```json"):
                 text = text[7:]
             if text.endswith("```"):
@@ -80,7 +79,7 @@ class Planner:
             response = self._llm_invoke_safe(prompt)
             if not response:
                 return None
-            text = response.content.strip()
+            text = response.strip()
             if text.startswith("```json"):
                 text = text[7:]
             if text.endswith("```"):

@@ -803,13 +803,37 @@ playwright install chromium
 
 ### 17.7 剩余工作
 
+- [ ] **端到端测试验证（Assign: @ww8191201-coder）**：在真实 demo 站上跑通全部场景，确认 Task 2 智能体能正常完成登录→执行→验证全流程
 - [ ] **变异测试**：对测试场景做变异操作，检测被测应用是否能正确识别错误
 - [ ] **评估对比实验**：对比 EmbeddingRetriever 与 PageIndexRetriever 的召回率/场景质量
-- [ ] **LLM 验证恢复**：DeepSeek API 恢复后启用 `verify_with_llm`
 - [ ] **截图对比验证**：增加基于视觉 embedding 的页面截图对比
 - [ ] **Web UI 完善**：Task 2 批量执行进度展示、报告可视化
 
-### 17.8 评分标准对标更新
+### 17.8 今日贡献（2026-05-22）
+
+#### Issue #1 修复（你）
+- tenacity 指数退避重试 — 所有 LLM 调用自动重试 3 次
+- 结构化日志 `src/utils/log.py` — 带时间戳/模块名，替换所有 `print()`
+- `requirements-lock.txt` — 锁定全部依赖版本
+- 类型注解 — 补充公共函数签名
+
+#### Code Review 修复（你）
+- `agent.py`：LLM 验证从硬编码跳过改为实际调用 `verify_with_llm()`
+- `executor.py`：元素定位策略顺序优化（`get_by_test_id` 移到最后）
+- `demo_crawler.py`/`executor.py`：登录判断 `"login"` → `"/login"`，12s 硬等改为事件驱动
+
+#### Task 2 合入（@why 队友）
+| 模块 | 实现内容 |
+|------|----------|
+| `agent.py` | 自动登录、重试+恢复、报告保存、前置预检 |
+| `executor.py` | 多策略定位（role/text/label/placeholder/title/name/alt/test_id）、SPA 等待、状态截图 |
+| `planner.py` | LLM 动态规划 + 错误恢复 |
+| `verifier.py` | URL 模式 + 文本内容 + 元素存在性 三层规则验证 |
+| `verification_rules.json` | 可配置的验证规则 |
+| `demo_crawler.py` | 实际登录演示站爬取 UI 元素（按钮文字、输入框名称） |
+| `run.py` | CLI 接口 `python run.py task2 --all --no-headless` |
+
+### 17.9 评分标准对标更新
 
 #### 基础功能档
 

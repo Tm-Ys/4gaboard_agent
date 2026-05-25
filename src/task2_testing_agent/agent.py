@@ -91,7 +91,7 @@ class TestingAgent:
                 break
 
         result = self.verifier.verify(scenario, self.memory)
-        llm_result = {"scenario": scenario.name, "passed": False, "reason": "LLM skipped (API rate limited)"}
+        llm_result = self.verifier.verify_with_llm(scenario, self.memory)
 
         self.executor.close()
 

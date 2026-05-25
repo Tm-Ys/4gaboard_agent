@@ -86,7 +86,6 @@ class Executor:
 
     def _locate(self, target: str):
         strategies = [
-            self.page.get_by_test_id(target),
             self.page.get_by_role("button", name=target),
             self.page.get_by_role("link", name=target),
             self.page.get_by_role("textbox", name=target),
@@ -96,6 +95,7 @@ class Executor:
             self.page.locator(f'[title="{target}"]'),
             self.page.locator(f'[name="{target}"]'),
             self.page.get_by_alt_text(target),
+            self.page.get_by_test_id(target),
             self.page.locator(target),
         ]
         for locator in strategies:
@@ -119,8 +119,8 @@ class Executor:
         self.page.click('button[type="submit"]')
         self._wait_ready(15000)
         self._wait_render()
-        return "login" not in self.page.url.lower()
-
+        return "/login" not in self.page.url.lower()
+ 
     def navigate(self, url: str):
         if not self.page:
             raise RuntimeError("Executor not started")

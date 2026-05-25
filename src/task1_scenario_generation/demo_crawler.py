@@ -14,12 +14,11 @@ def _login(page):
     page.fill('input[name="emailOrUsername"]', email)
     page.fill('input[name="password"]', password)
     page.click('button[type="submit"]')
-    page.wait_for_timeout(12000)
     try:
-        page.wait_for_selector('[class*="Sidebar"]', timeout=10000)
+        page.wait_for_selector('[class*="Sidebar"]', timeout=15000)
     except Exception:
         pass
-    return "login" not in page.url.lower()
+    return "/login" not in page.url.lower()
 
 
 def collect_ui_info(page) -> dict:
