@@ -8,17 +8,22 @@ from .planner import PlanStep
 from .memory import AgentMemory
 
 
+DEFAULT_TIMEOUT = 10000
+
+
 class Executor:
     def __init__(self, headless: bool = True):
         self.headless = headless
         self.browser: Browser | None = None
         self.page: Page | None = None
         self._pw = None
+        self._dialog_handler = None
 
     def start(self):
         self._pw = sync_playwright().start()
         self.browser = self._pw.chromium.launch(headless=self.headless)
         self.page = self.browser.new_page(viewport={"width": 800, "height": 600})
+        self._setup_dialog_handler()
         return self
 
     def close(self):
@@ -26,6 +31,17 @@ class Executor:
             self.browser.close()
         if self._pw:
             self._pw.stop()
+
+    def _setup_dialog_handler(self):
+        self.page.on("dialog", lambda dialog: dialog.accept())
+
+    def _wait_for_element(self, selector: str, timeout: int = DEFAULT_TIMEOUT,
+                          state: str = "visible") -> bool:
+        try:
+            self.page.wait_for_selector(selector, state=state, timeout=timeout)
+            return True
+        except PwTimeout:
+            return False
 
     def _wait_ready(self, timeout: int = 8000):
         try:
@@ -38,7 +54,7 @@ class Executor:
             except PwTimeout:
                 pass
         try:
-            self.page.wait_for_selector('[class*="Sidebar"], [class*="Header"], button:has-text("添加项目")',
+            self.page.wait_for_selector('[class*="Sidebar"], [class*="Header"], button:has-text("Add Project")',
                                         timeout=timeout)
         except PwTimeout:
             pass
@@ -113,6 +129,8 @@ class Executor:
 
     def _parse_action(self, action: str) -> tuple[str, str]:
         a = action.lower()
+        if "下拉" in a or "select" in a:
+            return ("select", self._strip_prefix(action, ["选择", "下拉选择", "下拉"]))
         if any(k in a for k in ["点击", "click", "按下"]):
             return ("click", self._strip_prefix(action, ["点击", "按下"]))
         if any(k in a for k in ["输入", "填写", "type", "fill"]):
@@ -152,6 +170,8 @@ class Executor:
                 self._wait_ready(3000)
             elif action_type == "fill":
                 result = self._do_fill(target, step.action, memory)
+            elif action_type == "select":
+                result = self._do_select(target, memory)
             elif action_type == "navigate":
                 result = self._do_navigate(target, memory)
             elif action_type == "wait":
@@ -207,7 +227,8 @@ class Executor:
     def _do_click(self, target: str, memory: AgentMemory) -> bool:
         action_lower = (target or "").lower()
 
-        if "提交" in action_lower or "确认" in action_lower or "确定" in action_lower:
+        is_submit = any(k in action_lower for k in ["提交", "确认", "确定", "submit", "create", "save", "add"])
+        if is_submit:
             try:
                 btn = self.page.locator('button[type="submit"]')
                 if btn.is_visible(timeout=500):
@@ -237,16 +258,16 @@ class Executor:
 
     def _extract_value_from_action(self, action: str) -> str:
         action_lower = action.lower()
-        if "输入" in action_lower or "填写" in action_lower:
-            if "项目名" in action:
+        if "输入" in action_lower or "填写" in action_lower or "fill" in action_lower:
+            if "项目" in action or "project" in action_lower:
                 return "Test Project"
-            if "密码" in action:
+            if "密码" in action or "password" in action_lower:
                 return os.environ.get("4GABOARD_PASSWORD", "test123")
-            if "邮箱" in action or "邮件" in action:
+            if "邮箱" in action or "邮件" in action or "email" in action_lower:
                 return os.environ.get("4GABOARD_ACCOUNT", "test@test.com")
-            if "描述" in action:
+            if "描述" in action or "description" in action_lower:
                 return "Test description"
-            if "名称" in action:
+            if "名称" in action or "name" in action_lower:
                 return "Test"
         return "test"
 
@@ -299,6 +320,30 @@ class Executor:
             return True
 
         raise Exception(f"Cannot find input for: {field_desc}")
+
+    def _do_select(self, target: str, memory: AgentMemory) -> bool:
+        selectors = [
+            f'select[name="{target}"]',
+            f'select[aria-label="{target}"]',
+            "select",
+        ]
+        for sel in selectors:
+            try:
+                el = self.page.locator(sel).first
+                if el.is_visible(timeout=500):
+                    el.select_option(label=target)
+                    memory.add_event("select", {"selector": sel, "value": target})
+                    return True
+            except Exception:
+                continue
+        el = self._locate(target)
+        if el:
+            tag = el.evaluate("el => el.tagName.toLowerCase()")
+            if tag == "select":
+                el.select_option(label=target)
+                memory.add_event("select", {"method": "smart_locate", "value": target})
+                return True
+        raise Exception(f"Cannot find select element: {target}")
 
     def _do_navigate(self, target: str, memory: AgentMemory) -> bool:
         url = target
@@ -359,7 +404,6 @@ class Executor:
         try:
             import time as _time
             _time.sleep(0.5)
-            url_before = self.page.url
             self._wait_ready(5000)
             _time.sleep(1)
             url = self.page.url
@@ -367,10 +411,17 @@ class Executor:
             text = self.page.inner_text("body")
 
             key_texts = []
-            for keyword in ["添加项目", "添加面板", "添加卡片", "添加列表", "Getting started",
-                            "Learn 4ga Boards", "项", "看"]:
-                if keyword in text:
+            text_lower = text.lower()
+            for keyword in ["Add Project", "Add Board", "Add Card", "Add List",
+                            "Getting started", "Learn 4ga Boards", "Project", "Board"]:
+                if keyword.lower() in text_lower:
                     key_texts.append(keyword)
+
+            screenshot_path = os.path.join(
+                tempfile.gettempdir(),
+                f"state_{int(time_module.time())}_{hash(url)}.png"
+            )
+            self.page.screenshot(path=screenshot_path)
 
             memory.add_event("page_state", {
                 "title": self.page.title(),
@@ -378,6 +429,7 @@ class Executor:
                 "path": parsed.path,
                 "visible_text": text[:500] if text else "",
                 "key_elements": key_texts,
+                "screenshot": screenshot_path,
             })
         except Exception:
             pass

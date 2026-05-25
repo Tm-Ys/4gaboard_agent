@@ -1,95 +1,95 @@
 [
   {
-    "name": "项目管理",
-    "description": "项目的创建、查看和导航",
+    "name": "Project Management",
+    "description": "CRUD operations for projects",
     "scenarios": [
       {
-        "name": "创建新项目",
-        "description": "通过侧边栏的添加项目按钮创建新项目",
+        "name": "Create new project",
+        "description": "Create a new project via the Add Project button",
         "steps": [
-          {"action": "点击添加项目", "target": "添加项目"},
-          {"action": "输入项目名称", "target": "Test Project"},
-          {"action": "点击提交", "target": "提交"}
+          {"action": "click Add Project", "target": "Add Project"},
+          {"action": "fill Test Project", "target": "Test Project"},
+          {"action": "click submit", "target": "submit"}
         ],
         "expectations": [
-          {"description": "页面跳转到项目页面"},
-          {"description": "新项目名称出现在页面中"}
+          {"description": "Redirect to project page"},
+          {"description": "New project name appears on page"}
         ]
       },
       {
-        "name": "通过侧边栏导航到项目",
-        "description": "点击侧边栏中的项目名称进入项目",
+        "name": "Navigate to project via sidebar",
+        "description": "Click project name in sidebar to enter project",
         "steps": [
-          {"action": "点击Getting started", "target": "Getting started"}
+          {"action": "click Getting started", "target": "Getting started"}
         ],
         "expectations": [
-          {"description": "进入项目页面"},
-          {"description": "页面显示项目看板"}
+          {"description": "Enter project page"},
+          {"description": "Page shows project board"}
         ]
       },
       {
-        "name": "搜索项目",
-        "description": "使用搜索框过滤项目列表",
+        "name": "Search project",
+        "description": "Filter project list using search box",
         "steps": [
-          {"action": "输入项目名称", "target": "Getting"},
-          {"action": "等待 1 秒"}
+          {"action": "fill Getting", "target": "Getting"},
+          {"action": "wait 1 second"}
         ],
         "expectations": [
-          {"description": "侧边栏显示过滤后的项目列表"},
-          {"description": "搜索结果匹配关键字"}
+          {"description": "Sidebar shows Getting started project"},
+          {"description": "Getting started appears in search results"}
         ]
       }
     ]
   },
   {
-    "name": "面板管理",
-    "description": "看板面板的创建和查看",
+    "name": "Board Management",
+    "description": "CRUD operations for boards",
     "scenarios": [
       {
-        "name": "在项目中添加面板",
-        "description": "在项目页面中添加新的看板面板",
+        "name": "Add board in project",
+        "description": "Add a new kanban board in a project",
         "steps": [
-          {"action": "点击Getting started", "target": "Getting started"},
-          {"action": "点击添加面板", "target": "添加面板"},
-          {"action": "输入面板名称", "target": "New Board"},
-          {"action": "点击提交", "target": "提交"}
+          {"action": "click Getting started", "target": "Getting started"},
+          {"action": "click Add Board", "target": "Add Board"},
+          {"action": "fill New Board", "target": "New Board"},
+          {"action": "click submit", "target": "submit"}
         ],
         "expectations": [
-          {"description": "新面板出现在侧边栏"},
-          {"description": "页面显示新面板的看板"}
+          {"description": "New board appears in sidebar"},
+          {"description": "Page shows new board"}
         ]
       }
     ]
   },
   {
-    "name": "看板视图",
-    "description": "看板中的列表和卡片",
+    "name": "Kanban Board View",
+    "description": "Board view with lists and cards",
     "scenarios": [
       {
-        "name": "查看项目看板",
-        "description": "进入项目后查看默认看板",
+        "name": "View project board",
+        "description": "Enter project and view default board",
         "steps": [
-          {"action": "点击Getting started", "target": "Getting started"},
-          {"action": "点击Learn 4ga Boards", "target": "Learn 4ga Boards"}
+          {"action": "click Getting started", "target": "Getting started"},
+          {"action": "click Learn 4ga Boards", "target": "Learn 4ga Boards"}
         ],
         "expectations": [
-          {"description": "显示看板页面"},
-          {"description": "显示看板中的列表和卡片"}
+          {"description": "Display board page"},
+          {"description": "Display lists and cards on board"}
         ]
       },
       {
-        "name": "在看板中添加卡片",
-        "description": "在看板列表底部添加新卡片",
+        "name": "Add card on board",
+        "description": "Add a new card at the bottom of a board list",
         "steps": [
-          {"action": "点击Getting started", "target": "Getting started"},
-          {"action": "点击Learn 4ga Boards", "target": "Learn 4ga Boards"},
-          {"action": "点击添加卡片", "target": "添加卡片"},
-          {"action": "输入卡片标题", "target": "Test Card"},
-          {"action": "点击提交", "target": "提交"}
+          {"action": "click Getting started", "target": "Getting started"},
+          {"action": "click Learn 4ga Boards", "target": "Learn 4ga Boards"},
+          {"action": "click Add Card", "target": "Add Card"},
+          {"action": "fill Test Card", "target": "Test Card"},
+          {"action": "click submit", "target": "submit"}
         ],
         "expectations": [
-          {"description": "新卡片出现在列表中"},
-          {"description": "卡片标题正确显示"}
+          {"description": "New card appears in list"},
+          {"description": "Board shows card list"}
         ]
       }
     ]
